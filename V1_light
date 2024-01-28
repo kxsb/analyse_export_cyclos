@@ -1,0 +1,312 @@
+#V1_rescripted by chatgpt
+#contain a lot of errors de fix
+
+import tkinter as tk
+from tkinter import filedialog, simpledialog, messagebox, scrolledtext, Checkbutton
+import pandas as pd
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.pyplot as plt
+import networkx as nx
+
+imported_files = []
+df_total = pd.DataFrame()
+
+def importer():
+    global df_total
+    file_paths = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx")])
+    if not file_paths:
+        messagebox.showwarning("Aucun fichier sélectionné", "Veuillez sélectionner au moins un fichier .xlsx")
+        return
+
+    for file_path in file_paths:
+        if file_path not in imported_files:
+            imported_files.append(file_path)
+            text_area.insert(tk.END, f"{file_path}\n")
+            df = pd.read_excel(file_path)
+            df_total = pd.concat([df_total, df], ignore_index=True)
+
+    if not df_total.empty:
+        messagebox.showinfo("Succès", "Les fichiers ont été importés et fusionnés avec succès.")
+
+def anonymiser_fichier(chemin_fichier):
+    df = pd.read_excel(chemin_fichier)
+    colonnes_a_supprimer = ['Numéro de transaction', 'De', 'Du compte', 'Vers le groupe', 'Vers le compte', 'Reçu par', 'Type de paiement', 'Description', 'Source paiement euro']
+    df.drop(columns=colonnes_a_supprimer, inplace=True)
+
+    def crypter_adherent_U(valeur):
+        return ''.join(['ABCDEFGHIJ'[int(ch)] if ch.isdigit() else ch for ch in valeur])
+
+    df['Réalisé par'] = df['Réalisé par'].apply(lambda x: crypter_adherent_U(x) if pd.notna(x) and x.startswith('U') else x)
+    df['Vers'] = df['Vers'].apply(lambda x: crypter_adherent_U(x) if pd.notna(x) and x.startswith('U') else x)
+
+    nouveau_chemin = chemin_fichier.replace('.xlsx', '_anonymise.xlsx')
+    df.to_excel(nouveau_chemin, index=False)
+    return nouveau_chemin
+
+def calculer_pourcentages(df):
+    try:
+        nb_professionnels = simpledialog.askinteger("Entrée", "Nombre total de professionnels dans le réseau", parent=window)
+        nb_particuliers = simpledialog.askinteger("Entrée", "Nombre total de particuliers dans le réseau", parent=window)
+
+        if nb_professionnels is None or nb_particuliers is None:
+            messagebox.showwarning("Information manquante", "Veuillez entrer les nombres totaux de professionnels et de particuliers.")
+            return
+
+        unique_professionnels = df['Vers'].str.startswith('P').sum()
+        unique_particuliers = df['Réalisé par'].str.startswith('U').sum()
+
+        pourcentage_professionnels_actifs = (unique_professionnels / nb_professionnels) * 100
+        pourcentage_particuliers_actifs = (unique_particuliers / nb_particuliers) * 100
+
+        messagebox.showinfo("Pourcentages", f"Pourcentage de professionnels actifs: {pourcentage_professionnels_actifs:.2f}%\nPourcentage de particuliers actifs: {pourcentage_particuliers_actifs:.2f}%")
+    except Exception as e:
+        messagebox.showerror("Erreur", f"Une erreur est survenue: {e}")
+
+def creer_graphique_bar(df, colonne, titre, xlabel, ylabel, ax, top_n=10):
+    top_items = df[colonne].value_counts().head(top_n)
+    top_items.plot(kind='bar', ax=ax)
+    ax.set_title(titre)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+def creer_frise_chronologique(df):
+    df_grouped = df.groupby([pd.Grouper(key='Date', freq='M'), 'Type']).sum().reset_index()
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for type_transaction in df_grouped['Type'].unique():
+        df_type = df_grouped[df_grouped['Type'] == type_transaction]
+        ax.plot(df_type['Date'], df_type['Montant'], label=f'Transactions {type_transaction}')
+    ax.set_title('Activité du Réseau par Mois')
+    ax.set_xlabel('Mois')
+    ax.set_ylabel('Montant Total')
+    ax.legend()
+    ax.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    return fig
+
+def creer_graphique_btb(df):
+    G = nx.from_pandas_edgelist(df, 'Réalisé par', 'Vers', ['Montant'])
+    pos = nx.spring_layout(G, k=0.1)
+    nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=500)
+    plt.title("Transactions de Professionnel à Professionnel (P>P)")
+    plt.show()
+
+def creer_graphiques(df, top_n=10):
+    # Calculer les dates extrêmes et les totaux
+    date_debut = df['Date'].min().strftime('%d/%m/%Y')
+    date_fin = df['Date'].max().strftime('%d/%m/%Y')
+    total_u_p = df[df['Réalisé par'].str.startswith('U') & df['Vers'].str.startswith('P')]['Montant'].sum()
+    total_u_u = df[df['Réalisé par'].str.startswith('U') & df['Vers'].str.startswith('U')]['Montant'].sum()
+    
+    # Préparation des données
+    df_u_p = df[df['Réalisé par'].str.startswith('U') & df['Vers'].str.startswith('P')]
+    df_u_u = df[df['Réalisé par'].str.startswith('U') & df['Vers'].str.startswith('U')]
+
+    # Limiter aux 'top_n' résultats
+    top_professionnels_trans = df_u_p['Vers'].value_counts().head(top_n)
+    top_professionnels_sommes = df_u_p.groupby('Vers')['Montant'].sum().nlargest(top_n)
+    top_particuliers_trans = df_u_u['Réalisé par'].value_counts().head(top_n)
+    top_particuliers_sommes = df_u_u.groupby('Réalisé par')['Montant'].sum().nlargest(top_n)
+
+    # Création des sous-graphiques
+    fig, axs = plt.subplots(2, 2, figsize=(15, 10))
+
+    # Définir le titre et le sous-titre
+    fig.suptitle("Analyse des Transactions", fontsize=16)
+    plt.figtext(0.5, 0.92, f"Analyse de la période du {date_debut} au {date_fin}. Le total des paiements réalisés par les particuliers envers les pros (U>P) représente {total_u_p} unités. Le total des transactions réalisées de particulier à particulier (U>U) représente {total_u_u} unités.", ha='center', fontsize=10, wrap=True)
+
+    # Graphique 1: Top professionnels par nombre de transactions reçues
+    top_professionnels_trans.plot(kind='barh', ax=axs[0, 0])
+    axs[0, 0].set_title(f"Top {top_n} Professionnels par Nombre de Transactions Reçues")
+    axs[0, 0].set_xlabel("Nombre de Transactions")
+    axs[0, 0].set_ylabel("Professionnels")
+
+    # Graphique 2: Top professionnels par sommes des transactions reçues
+    top_professionnels_sommes.plot(kind='barh', ax=axs[0, 1])
+    axs[0, 1].set_title(f"Top {top_n} Professionnels par Sommes des Transactions Reçues")
+    axs[0, 1].set_xlabel("Somme des Transactions")
+    axs[0, 1].set_ylabel("Professionnels")
+
+    # Graphique 3: Top particuliers par nombre de transactions émises
+    top_particuliers_trans.plot(kind='barh', ax=axs[1, 0])
+    axs[1, 0].set_title(f"Top {top_n} Particuliers par Nombre de Transactions Émises")
+    axs[1, 0].set_xlabel("Nombre de Transactions")
+    axs[1, 0].set_ylabel("Particuliers")
+
+    # Graphique 4: Top particuliers par sommes de transactions émises
+    top_particuliers_sommes.plot(kind='barh', ax=axs[1, 1])
+    axs[1, 1].set_title(f"Top {top_n} Particuliers par Sommes de Transactions Émises")
+    axs[1, 1].set_xlabel("Somme des Transactions")
+    axs[1, 1].set_ylabel("Particuliers")
+
+    # Ajuster l'espacement et afficher
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
+def analyser_utilisateur(num_utilisateur, df):
+    graph_window = tk.Toplevel(window)
+    graph_window.title(f"Analyse de l'Utilisateur {num_utilisateur}")
+
+    fig = plt.Figure(figsize=(12, 8), dpi=100)
+    canvas = FigureCanvasTkAgg(fig, master=graph_window)
+    canvas_widget = canvas.get_tk_widget()
+    canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    # Graphique en réseau
+    ax1 = fig.add_subplot(221)
+    G = nx.DiGraph()
+    df_user = df[(df['Réalisé par'] == num_utilisateur) | (df['Vers'] == num_utilisateur)]
+    for _, row in df_user.iterrows():
+        G.add_edge(row['Réalisé par'], row['Vers'])
+    nx.draw(G, ax=ax1, with_labels=True, node_color='skyblue', node_size=500)
+    ax1.set_title("Réseau d'Interactions")
+
+    # Graphique en camembert
+    ax2 = fig.add_subplot(222)
+    df_depenses = df[df['Réalisé par'] == num_utilisateur]
+    depenses_par_destinataire = df_depenses['Vers'].value_counts()
+    ax2.pie(depenses_par_destinataire, labels=depenses_par_destinataire.index, autopct='%1.1f%%')
+    ax2.set_title("Répartition des Dépenses")
+
+    # Frise chronologique
+    ax3 = fig.add_subplot(212)
+    df_activite = df_user.sort_values(by='Date')
+    ax3.plot(df_activite['Date'], df_activite['Montant'], marker='o')
+    ax3.set_title("Activité au Fil du Temps")
+    ax3.set_xlabel("Date")
+    ax3.set_ylabel("Montant")
+    ax3.tick_params(axis='x', rotation=45)
+
+    canvas.draw()
+
+def afficher_interet_economique(economies):
+    messagebox.showinfo("Intérêt Économique", f"Économies réalisées en commissions bancaires : {economies:.2f} €")
+
+def calculer_economies(df, pourcentage_commission):
+    total_transactions = df['Montant'].sum()
+    economies = total_transactions * (pourcentage_commission / 100)
+    return economies
+
+def analyser_transactions_professionnels(df, top_n=35):
+    # Exclure les transactions spécifiques
+    df_filtered = df[~df['Réalisé par'].isin(['P0000 local gonette', 'anonyme']) & ~df['Vers'].isin(['P0000 local gonette', 'anonyme'])]
+
+    # Filtrer les transactions des professionnels
+    df_pros = df_filtered[(df_filtered['Réalisé par'].str.startswith('P')) | (df_filtered['Vers'].str.startswith('P'))]
+
+    # Calculer les sommes reçues et émises pour chaque professionnel
+    sommes_recues = df_pros[df_pros['Vers'].str.startswith('P')].groupby('Vers')['Montant'].sum()
+    sommes_emises = df_pros[df_pros['Réalisé par'].str.startswith('P')].groupby('Réalisé par')['Montant'].sum()
+
+    # Créer un DataFrame pour le graphique
+    df_graphique = pd.DataFrame({'Reçu': sommes_recues, 'Émis': sommes_emises}).fillna(0)
+    df_graphique['Total'] = df_graphique['Reçu'] - df_graphique['Émis']
+    df_top = df_graphique.nlargest(top_n, 'Total')
+
+    # Créer le graphique
+    fig, ax = plt.subplots()
+    df_top[['Reçu', 'Émis']].plot(kind='bar', ax=ax, color=['green', 'red'])
+    ax.set_title("Top Professionnels par Volume de Transactions")
+    ax.set_xlabel("Professionnels")
+    ax.set_ylabel("Montant Total")
+    plt.show()
+
+def appliquer():
+    try:
+        if chk_anonymiser_var.get():
+            for chemin in imported_files:
+                chemin_anonymise = anonymiser_fichier(chemin)
+                messagebox.showinfo("Succès", f"Fichier anonymisé créé : {chemin_anonymise}")
+
+        if chk_analyse_up_var.get():
+            creer_graphiques(df_total)
+
+        if chk_pourcentage_activite_var.get() and not df_total.empty:
+            calculer_pourcentages(df_total)
+
+        if chk_liste_btb_var.get() and not df_total.empty:
+            creer_graphique_btb(df_total)
+
+        if chk_analyse_situation_part_var.get():
+            num_utilisateur = simpledialog.askstring("Entrée", "Numéro d'utilisateur à analyser:", parent=window)
+            if num_utilisateur:
+                analyser_utilisateur(num_utilisateur, df_total)
+
+        if chk_interet_economique_var.get():
+            pourcentage_commission = 0.6  # Pourcentage moyen fixe des commissions bancaires
+            economies_realisees = calculer_economies(df_total, pourcentage_commission)
+            afficher_interet_economique(economies_realisees)
+
+        if chk_analyser_transactions_professionnels_var.get() and not df_total.empty:
+            analyser_transactions_professionnels(df_total)
+    except Exception as e:
+        messagebox.showerror("Erreur", f"Une erreur est survenue : {e}")
+
+def reinitialiser():
+    global imported_files
+    imported_files = []
+    text_area.delete('1.0', tk.END)
+
+# Créer la fenêtre principale
+window = tk.Tk()
+window.title("Analyse de données de paiement")
+
+# Créer les boutons
+btn_importer = tk.Button(window, text="Importer", command=importer)
+btn_importer.pack()
+
+btn_appliquer = tk.Button(window, text="Appliquer", command=appliquer)
+btn_appliquer.pack()
+
+btn_reinitialiser = tk.Button(window, text="Réinitialiser", command=reinitialiser)
+btn_reinitialiser.pack()
+
+# Créer une zone de texte défilante pour afficher les fichiers importés
+text_area = scrolledtext.ScrolledText(window, wrap=tk.WORD, height=10, width=50)
+text_area.pack()
+
+# Créer des cases à cocher
+chk_anonymiser_var = tk.IntVar()
+chk_anonymiser = Checkbutton(window, text="Anonymiser les données", variable=chk_anonymiser_var)
+chk_anonymiser.pack()
+
+chk_analyse_up_var = tk.IntVar()
+chk_analyse_up = Checkbutton(window, text="Analyse des paiements U>P", variable=chk_analyse_up_var)
+chk_analyse_up.pack()
+
+chk_analyse_situation_part_var = tk.IntVar()
+chk_analyse_situation_part = Checkbutton(window, text="Analyse situation particulière", variable=chk_analyse_situation_part_var)
+chk_analyse_situation_part.pack()
+
+# Variable pour la case à cocher "Mauvais Élève"
+chk_analyser_transactions_professionnels_var = tk.IntVar()
+
+# Créer la case à cocher pour "Mauvais Élève"
+chk_analyser_transactions_professionnels = tk.Checkbutton(window, text="transction btb émis/reçus", variable=chk_analyser_transactions_professionnels_var)
+chk_analyser_transactions_professionnels.pack()
+
+# Définir la variable pour la case à cocher "Liste des paiements BTB"
+chk_liste_btb_var = tk.IntVar()
+
+# Créer la case à cocher pour "Liste des paiements BTB"
+chk_liste_btb = Checkbutton(window, text="Liste des paiements BTB", variable=chk_liste_btb_var)
+chk_liste_btb.pack()
+
+chk_analyse_emissions = tk.Checkbutton(window, text="Analyse des émissions")
+chk_analyse_emissions.pack()
+
+# Variable pour la case à cocher "Intérêt économique"
+chk_interet_economique_var = tk.IntVar()
+
+# Créer la case à cocher pour "Intérêt économique"
+chk_interet_economique = tk.Checkbutton(window, text="Intérêt économiques", variable=chk_interet_economique_var)
+chk_interet_economique.pack()
+
+# Case à cocher pour "Pourcentage d'activité du réseau"
+chk_pourcentage_activite_var = tk.IntVar()
+chk_pourcentage_activite = Checkbutton(window, text="Pourcentage d'activité du réseau", variable=chk_pourcentage_activite_var)
+chk_pourcentage_activite.pack()
+
+# Lancer la boucle principale de Tkinter
+window.mainloop()
