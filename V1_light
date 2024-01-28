@@ -1,5 +1,5 @@
 #V1_rescripted by chatgpt
-#contain a lot of errors de fix
+#contain a lot of errors to fix
 
 import tkinter as tk
 from tkinter import filedialog, simpledialog, messagebox, scrolledtext, Checkbutton
