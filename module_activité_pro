@@ -1,0 +1,128 @@
+#module analyse indivudelle de l'activité des pro 
+
+import tkinter as tk
+from tkinter import filedialog, simpledialog, messagebox
+import pandas as pd
+import matplotlib.pyplot as plt
+import networkx as nx
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import re
+
+# Initialisation d'un DataFrame global pour stocker les données importées
+df_total = pd.DataFrame()
+
+def importer():
+    """Importe les données depuis des fichiers Excel sélectionnés par l'utilisateur."""
+    global df_total
+    file_paths = filedialog.askopenfilenames(title="Sélectionner des fichiers Excel", filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")])
+    if not file_paths:
+        messagebox.showwarning("Avertissement", "Aucun fichier sélectionné.")
+        return
+
+    for file_path in file_paths:
+        df = pd.read_excel(file_path)
+        df_total = pd.concat([df_total, df], ignore_index=True)
+
+    if not df_total.empty:
+        messagebox.showinfo("Succès", "Les fichiers ont été importés avec succès.")
+
+def analyser_activite_professionnel(num_professionnel, df):
+    if df.empty:
+        messagebox.showwarning("Avertissement", "Aucune donnée à analyser.")
+        return
+
+    # Filtrer les transactions impliquant le professionnel spécifié
+    df_user = df[(df['Réalisé par'].str.contains(num_professionnel)) | (df['Vers'].str.contains(num_professionnel))]
+
+    if df_user.empty:
+        messagebox.showinfo("Résultat", f"Aucune activité trouvée pour {num_professionnel}.")
+        return
+
+    # Tenter de trouver le nom complet dans les colonnes 'Réalisé par' ou 'Vers'
+    nom_complet_professionnel = None
+    for _, row in df_user.iterrows():
+        if num_professionnel in row['Réalisé par']:
+            nom_complet_professionnel = row['Réalisé par']
+            break
+        elif num_professionnel in row['Vers']:
+            nom_complet_professionnel = row['Vers']
+            break
+    
+    if not nom_complet_professionnel:
+        nom_complet_professionnel = num_professionnel  # Fallback au numéro si le nom n'est pas trouvé
+
+    # Information sur les transactions de particuliers vers le professionnel
+    df_particuliers = df_user[df_user['Vers'].str.contains(num_professionnel) & df_user['Réalisé par'].str.startswith('U')]
+    nb_particuliers = df_particuliers['Réalisé par'].nunique()
+    total_montant_particuliers = df_particuliers['Montant'].sum()
+    premiere_date = df_user['Date'].min().strftime('%d/%m/%Y')
+    derniere_date = df_user['Date'].max().strftime('%d/%m/%Y')
+    
+    # Calcul du nombre total de transactions reçues et de la somme totale de ces transactions
+    nb_transactions_recues = df_user[df_user['Vers'].str.contains(num_professionnel)].shape[0]
+    somme_transactions_recues = df_user[df_user['Vers'].str.contains(num_professionnel)]['Montant'].sum()
+
+    # Créer une nouvelle fenêtre pour les graphiques
+    graph_window = tk.Toplevel(window)
+    graph_window.title(f"Analyse de l'Activité {num_professionnel}")
+
+    # Ajouter le texte d'information avec les nouvelles informations
+    info_text = f"{nb_particuliers} particuliers(U) ont payé {nom_complet_professionnel} sur la période du {premiere_date} au {derniere_date}, ce qui représente {nb_transactions_recues} paiements pour un montant de {somme_transactions_recues:.2f}€."
+    info_label = tk.Label(graph_window, text=info_text, wraplength=500)
+    info_label.pack()
+
+    fig = plt.Figure(figsize=(12, 8), dpi=100)
+    canvas = FigureCanvasTkAgg(fig, master=graph_window)
+    canvas_widget = canvas.get_tk_widget()
+    canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    # Graphique en camembert pour les encaissements reçus de professionnels
+    ax1 = fig.add_subplot(221)
+    df_recus = df_user[df_user['Vers'].str.contains(num_professionnel) & df_user['Réalisé par'].str.startswith('P')]
+    montant_par_emetteur = df_recus.groupby('Réalisé par')['Montant'].sum()
+    ax1.pie(montant_par_emetteur, labels=montant_par_emetteur.index, autopct='%1.1f%%', startangle=140)
+    ax1.set_title("Répartition des Encaissements depuis pro Reçus")
+
+    # Graphique en camembert pour les montants émis vers d'autres professionnels
+    ax2 = fig.add_subplot(222)
+    df_emis = df_user[df_user['Réalisé par'].str.contains(num_professionnel) & df_user['Vers'].str.startswith('P')]
+    montant_par_destinataire = df_emis.groupby('Vers')['Montant'].sum()
+    ax2.pie(montant_par_destinataire, labels=montant_par_destinataire.index, autopct='%1.1f%%', startangle=140)
+    ax2.set_title("Répartition des Émissions vers Pro")
+
+    # Frise chronologique des montants reçus
+    ax3 = fig.add_subplot(212)
+    df_recu = df_user[df_user['Vers'].str.contains(num_professionnel)].sort_values(by='Date')
+    ax3.plot(df_recu['Date'], df_recu['Montant'], marker='o', linestyle='-')
+    ax3.set_title("Montant Reçu au Fil du Temps")
+    ax3.set_xlabel("Date")
+    ax3.set_ylabel("Montant")
+    ax3.tick_params(axis='x', rotation=45)
+
+    canvas.draw()
+    
+def appliquer():
+    """Demande le numéro du professionnel et lance l'analyse."""
+    num_saisi = simpledialog.askstring("Entrée", "Identifiant du professionnel à analyser (ex: P0300):", parent=window)
+    if num_saisi:
+        # Utiliser une expression régulière pour extraire l'identifiant professionnel
+        match = re.match(r"(P\d{4})", num_saisi)
+        if match:
+            num_professionnel = match.group(1)  # Extrait l'identifiant professionnel
+            analyser_activite_professionnel(num_professionnel, df_total)
+        else:
+            messagebox.showwarning("Erreur", "Format d'identifiant invalide. Format attendu: Pxxxx.")
+
+# Créer la fenêtre principale
+window = tk.Tk()
+window.title("Analyse de données de paiement")
+
+# Créer et placer les boutons pour importer les données et pour lancer l'analyse
+btn_importer = tk.Button(window, text="Importer des données", command=importer)
+btn_importer.pack()
+
+btn_analyser_professionnel = tk.Button(window, text="Analyser activité d'un professionnel", command=appliquer)
+btn_analyser_professionnel.pack()
+
+# Lancer la boucle principale de Tkinter
+window.mainloop()
