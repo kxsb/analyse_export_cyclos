@@ -1,0 +1,405 @@
+import tkinter as tk
+from tkinter import filedialog, simpledialog, messagebox
+import pandas as pd
+import matplotlib.pyplot as plt
+import networkx as nx
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import re
+from cryptography.fernet import Fernet
+import pandas as pd
+from tkinter import filedialog, messagebox, simpledialog
+import tkinter as tk
+from io import BytesIO  # Ajoutez cette ligne en haut de votre script
+from tkinter import ttk
+
+# Initialisation d'un DataFrame global pour stocker les données importées
+df_total = pd.DataFrame()
+
+def decrypt_file(file_path, key_path):
+    """
+    Déchiffre le fichier avec la clé stockée dans le fichier spécifié.
+    """
+    try:
+        # Chargement de la clé à partir du fichier
+        with open(key_path, "rb") as key_file:
+            key = key_file.read()
+    except FileNotFoundError:
+        messagebox.showerror("Erreur", "Fichier de clé non trouvé.")
+        return None
+    except Exception as e:
+        messagebox.showerror("Erreur", f"Erreur lors de la lecture du fichier de clé : {e}")
+        return None
+
+    try:
+        f = Fernet(key)
+    except ValueError as e:
+        messagebox.showerror("Erreur", f"La clé de déchiffrement est invalide : {e}")
+        return None
+
+    try:
+        with open(file_path, "rb") as file:
+            encrypted_data = file.read()
+        decrypted_data = f.decrypt(encrypted_data)
+        return decrypted_data
+    except FileNotFoundError:
+        messagebox.showerror("Erreur", "Fichier à déchiffrer non trouvé.")
+        return None
+    except Exception as e:
+        messagebox.showerror("Erreur", f"Erreur lors du déchiffrement : {e}")
+        return None
+
+def importer(window):
+    """Importe les données depuis des fichiers Excel sélectionnés par l'utilisateur ou propose de les chiffrer de manière plus interactive."""
+    global df_total
+    file_paths = filedialog.askopenfilenames(title="Sélectionner des fichiers",
+                                             filetypes=[("Excel files", "*.xlsx"), ("Encrypted files", "*.encrypted"), ("All files", "*.*")])
+    if not file_paths:
+        messagebox.showinfo("Information", "Aucun fichier n'a été sélectionné. L'opération d'importation est annulée.")
+        return
+
+    for file_path in file_paths:
+        if file_path.endswith('.encrypted'):
+            proceed = messagebox.askyesno("Fichier chiffré détecté", "Un fichier chiffré a été sélectionné. Souhaitez-vous le déchiffrer pour l'importer ?")
+            if proceed:
+                key_file_path = filedialog.askopenfilename(title="Sélectionner le fichier de clé de déchiffrement",
+                                                           filetypes=[("Key files", "*.key"), ("All files", "*.*")], parent=window)
+                if key_file_path:
+                    try:
+                        decrypted_data = decrypt_file(file_path, key_file_path)
+                        df = pd.read_excel(BytesIO(decrypted_data))
+                        df_total = pd.concat([df_total, df], ignore_index=True)
+                    except Exception as e:
+                        messagebox.showerror("Erreur de déchiffrement", f"Une erreur est survenue lors du déchiffrement : {e}")
+                else:
+                    messagebox.showinfo("Annulé", "Déchiffrement annulé. Aucun fichier de clé fourni.")
+            else:
+                messagebox.showinfo("Annulé", "Importation annulée pour le fichier chiffré.")
+        else:
+            response = messagebox.askyesnocancel("Fichier non chiffré détecté", "Le fichier sélectionné n'est pas chiffré. Souhaitez-vous l'importer directement ?\n\nOui pour importer, Non pour chiffrer avant l'importation.")
+            if response is None:  # L'utilisateur a annulé
+                continue
+            elif response:  # L'utilisateur a choisi d'importer
+                try:
+                    df = pd.read_excel(file_path)
+                    df_total = pd.concat([df_total, df], ignore_index=True)
+                except Exception as e:
+                    messagebox.showerror("Erreur d'importation", f"Une erreur est survenue lors de l'importation : {e}")
+            else:  # L'utilisateur a choisi de chiffrer
+                encrypt_file_before_import(file_path, window)
+
+    if not df_total.empty:
+        messagebox.showinfo("Importation réussie", "Tous les fichiers sélectionnés ont été importés avec succès.")
+
+    afficher_statistiques(df_total)
+
+def encrypt_file_before_import(file_path, window):
+    """Propose à l'utilisateur de chiffrer un fichier avant son importation."""
+    encrypt_response = messagebox.askyesno("Chiffrer le document", "Voulez-vous utiliser une clé existante pour chiffrer le document ?")
+    if encrypt_response:
+        key_file_path = filedialog.askopenfilename(title="Sélectionner la clé de chiffrement",
+                                                   filetypes=[("Key files", "*.key"), ("All files", "*.*")], parent=window)
+        if key_file_path:
+            encrypt_file(file_path, key_file_path)
+            messagebox.showinfo("Chiffrement réussi", "Le fichier a été chiffré avec succès.")
+    else:
+        key_path = generate_key()
+        if key_path:  # Si l'utilisateur n'a pas annulé la création de la clé
+            encrypt_file(file_path, key_path)
+            messagebox.showinfo("Chiffrement réussi", "Le fichier a été chiffré avec succès et une nouvelle clé a été générée.")            
+def generate_key():
+    """
+    Génère une clé de chiffrement et demande à l'utilisateur où la sauvegarder.
+    """
+    key = Fernet.generate_key()
+    file_path = filedialog.asksaveasfilename(defaultextension=".key", filetypes=[("Key files", "*.key")])
+    if file_path:  # Vérifie si l'utilisateur a choisi un emplacement
+        with open(file_path, "wb") as key_file:
+            key_file.write(key)
+        messagebox.showinfo("Succès", "La clé de chiffrement a été sauvegardée avec succès.")
+    else:
+        messagebox.showwarning("Annulé", "L'opération de sauvegarde de la clé a été annulée.")
+
+def encrypt_file(file_path, key_path):
+    """
+    Chiffre le fichier avec la clé fournie.
+    """
+    key = open(key_path, "rb").read()
+    f = Fernet(key)
+    with open(file_path, "rb") as file:
+        file_data = file.read()
+    encrypted_data = f.encrypt(file_data)
+    with open(file_path + ".encrypted", "wb") as file:
+        file.write(encrypted_data)
+    messagebox.showinfo("Succès", "Le fichier a été chiffré avec succès!")
+    
+def extraire_identifiants_professionnels(df):
+    """Extrait les identifiants uniques des professionnels dans le DataFrame."""
+    pattern = r"P\d{4}"
+    # Concaténer les colonnes pertinentes où les identifiants peuvent être trouvés
+    data_concatenee = pd.concat([df['Réalisé par'], df['Vers']])
+    # Filtrer par le pattern et extraire les identifiants uniques
+    identifiants = data_concatenee[data_concatenee.str.contains(pattern, regex=True, na=False)].unique()
+    return sorted(identifiants)  # Retourne une liste triée des identifiants uniques
+
+def lancer_analyse_professionnel(event=None):
+    """Lance l'analyse pour le professionnel sélectionné."""
+    identifiant_professionnel = combo_box.get()
+    if identifiant_professionnel:
+        analyser_activite_professionnel(identifiant_professionnel, df_total)
+    else:
+        messagebox.showwarning("Erreur", "Veuillez sélectionner un identifiant professionnel.")
+
+def appliquer_avec_menu_deroulant():
+    """Crée une fenêtre avec un menu déroulant pour sélectionner un professionnel, avec une mise en forme améliorée."""
+    top = tk.Toplevel(window)
+    top.title("Sélectionner un professionnel")
+    top.geometry("400x200")  # Ajustez la taille selon le besoin
+
+    # Configurez cette frame pour une meilleure organisation et apparence
+    frame = ttk.Frame(top, padding="10 10 10 10")
+    frame.pack(expand=True, fill=tk.BOTH)
+
+    ttk.Label(frame, text="Choisissez un professionnel:", font=('Arial', 12)).pack(pady=(0, 10))
+
+    identifiants = extraire_identifiants_professionnels(df_total)
+    
+    global combo_box  # Déclarer comme global si nécessaire pour accéder ailleurs
+    combo_box = ttk.Combobox(frame, values=identifiants, width=50)
+    combo_box.pack()
+
+    # Ajouter une barre de recherche
+    ttk.Label(frame, text="Recherche rapide:", font=('Arial', 12)).pack(pady=(10, 0))
+    recherche_var = tk.StringVar()
+    recherche_var.trace("w", lambda name, index, mode, sv=recherche_var: filtrer_identifiants(sv))
+    barre_recherche = ttk.Entry(frame, textvariable=recherche_var, font=('Arial', 10))
+    barre_recherche.pack(pady=(0, 20))
+
+    btn_valider = ttk.Button(frame, text="Analyser", command=lancer_analyse_professionnel)
+    btn_valider.pack()
+
+    # Centrer la fenêtre sur l'écran
+    centre_fenetre(top)
+    
+def centre_fenetre(fenetre):
+    """Centre la fenêtre sur l'écran."""
+    fenetre.update_idletasks()
+    width = fenetre.winfo_width()
+    height = fenetre.winfo_height()
+    x = (fenetre.winfo_screenwidth() // 2) - (width // 2)
+    y = (fenetre.winfo_screenheight() // 2) - (height // 2)
+    fenetre.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+
+def filtrer_identifiants(sv):
+    """Filtre les identifiants dans le menu déroulant basé sur la saisie de l'utilisateur."""
+    termes_recherche = sv.get().upper()
+    identifiants_filtrés = [id for id in extraire_identifiants_professionnels(df_total) if termes_recherche in id.upper()]
+    combo_box['values'] = identifiants_filtrés
+    if len(identifiants_filtrés) > 0 and termes_recherche in identifiants_filtrés[0]:
+        combo_box.set(termes_recherche)
+    else:
+        combo_box.set('')
+                                
+def analyser_activite_professionnel(num_professionnel, df):
+    if df.empty:
+        messagebox.showwarning("Avertissement", "Aucune donnée à analyser.")
+        return
+
+    # Filtrer les transactions impliquant le professionnel spécifié
+    df_user = df[(df['Réalisé par'].str.contains(num_professionnel)) | (df['Vers'].str.contains(num_professionnel))]
+
+    if df_user.empty:
+        messagebox.showinfo("Résultat", f"Aucune activité trouvée pour {num_professionnel}.")
+        return
+
+    # Tenter de trouver le nom complet dans les colonnes 'Réalisé par' ou 'Vers'
+    nom_complet_professionnel = None
+    for _, row in df_user.iterrows():
+        if num_professionnel in row['Réalisé par']:
+            nom_complet_professionnel = row['Réalisé par']
+            break
+        elif num_professionnel in row['Vers']:
+            nom_complet_professionnel = row['Vers']
+            break
+    
+    if not nom_complet_professionnel:
+        nom_complet_professionnel = num_professionnel  # Fallback au numéro si le nom n'est pas trouvé
+
+    # Information sur les transactions de particuliers vers le professionnel
+    df_particuliers = df_user[df_user['Vers'].str.contains(num_professionnel) & df_user['Réalisé par'].str.startswith('U')]
+    nb_particuliers = df_particuliers['Réalisé par'].nunique()
+    total_montant_particuliers = df_particuliers['Montant'].sum()
+
+    # Information sur les transactions de professionnels vers le professionnel
+    df_professionnels = df_user[df_user['Vers'].str.contains(num_professionnel) & df_user['Réalisé par'].str.startswith('P')]
+    nb_professionnels = df_professionnels['Réalisé par'].nunique()
+    total_montant_professionnels = df_professionnels['Montant'].sum()
+
+    premiere_date = df_user['Date'].min().strftime('%d/%m/%Y')
+    derniere_date = df_user['Date'].max().strftime('%d/%m/%Y')
+    
+    # Calcul du nombre total de transactions reçues et de la somme totale de ces transactions
+    nb_transactions_recues = df_user[df_user['Vers'].str.contains(num_professionnel)].shape[0]
+    somme_transactions_recues = df_user[df_user['Vers'].str.contains(num_professionnel)]['Montant'].sum()
+
+    # Créer une nouvelle fenêtre pour les graphiques
+    graph_window = tk.Toplevel(window)
+    graph_window.title(f"Analyse de l'Activité {num_professionnel}")
+
+    # Ajouter le texte d'information avec les nouvelles informations
+    info_text = f"{nb_particuliers} particuliers (U) et {nb_professionnels} professionnels (P) ont payé {nom_complet_professionnel} sur la période du {premiere_date} au {derniere_date}, ce qui représente {nb_transactions_recues} paiements pour un montant total de {somme_transactions_recues:.2f}€. \n\nDétail: {total_montant_particuliers:.2f}€ de particuliers et {total_montant_professionnels:.2f}€ de professionnels."
+    info_label = tk.Label(graph_window, text=info_text, wraplength=500)
+    info_label.pack()
+
+    fig = plt.Figure(figsize=(16, 16), dpi=100)  # Ajustez la taille selon le besoin
+    fig.subplots_adjust(top=0.95, bottom=0.05, left=0.05, right=0.95, hspace=0.3, wspace=0.35)
+    canvas = FigureCanvasTkAgg(fig, master=graph_window)
+    canvas_widget = canvas.get_tk_widget()
+    canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    # Frise chronologique des montants reçus
+    ax1 = fig.add_subplot(311)  # Première ligne, prend toute la largeur
+    df_recu = df_user[df_user['Vers'].str.contains(num_professionnel)].sort_values(by='Date')
+    ax1.plot(df_recu['Date'], df_recu['Montant'], marker='o', linestyle='-')
+    ax1.set_title("Montant Reçu au Fil du Temps")
+    ax1.set_xlabel("Date")
+    ax1.set_ylabel("Montant")
+    ax1.tick_params(axis='x', rotation=45)
+
+    # Graphique en camembert pour les encaissements reçus de professionnels
+    ax2 = fig.add_subplot(323)
+    df_recus = df_user[df_user['Vers'].str.contains(num_professionnel) & df_user['Réalisé par'].str.startswith('P')]
+    montant_par_emetteur = df_recus.groupby('Réalisé par')['Montant'].sum()
+    ax2.pie(montant_par_emetteur, labels=montant_par_emetteur.index, autopct='%1.1f%%', startangle=140)
+    ax2.set_title("Répartition des Encaissements depuis pro Reçus")
+
+    # Graphique en camembert pour les montants émis vers d'autres professionnels
+    ax3 = fig.add_subplot(324)
+    df_emis = df_user[df_user['Réalisé par'].str.contains(num_professionnel) & df_user['Vers'].str.startswith('P')]
+    montant_par_destinataire = df_emis.groupby('Vers')['Montant'].sum()
+    ax3.pie(montant_par_destinataire, labels=montant_par_destinataire.index, autopct='%1.1f%%', startangle=140)
+    ax3.set_title("Répartition des Émissions vers Pro")
+
+        # Créer le graphe NetworkX pour visualiser les transactions
+    ax4 = fig.add_subplot(313)  # Ajout d'un quatrième graphique dans la fenêtre
+    G = nx.DiGraph()
+
+    # Filtrer les transactions entre professionnels
+    transactions_pros = df_user[(df_user['Réalisé par'].str.startswith('P')) & (df_user['Vers'].str.startswith('P'))]
+    
+    # Ajouter des arêtes pour chaque transaction
+    for _, transaction in transactions_pros.iterrows():
+        if transaction['Réalisé par'] == num_professionnel:
+            # Transactions sortantes du professionnel ciblé (en rouge)
+            G.add_edge(transaction['Réalisé par'], transaction['Vers'], color='red')
+        elif transaction['Vers'] == num_professionnel:
+            # Transactions entrantes vers le professionnel ciblé (en bleu)
+            G.add_edge(transaction['Réalisé par'], transaction['Vers'], color='blue')
+        else:
+            # Transactions "rebonds" (en vert pour les distinguer, si nécessaire)
+            G.add_edge(transaction['Réalisé par'], transaction['Vers'], color='green')
+
+    # Dessiner le graphe avec des couleurs spécifiques pour les arêtes
+    pos = nx.spring_layout(G)
+    edges = G.edges(data=True)
+    colors = [edge[2]['color'] for edge in edges]
+    nx.draw(G, pos, ax=ax4, edge_color=colors, with_labels=True, node_size=500)
+    ax4.set_title("Réseau de Transactions Professionnelles")
+
+    canvas.draw()
+    
+def afficher_statistiques(df):
+    if df.empty:
+        messagebox.showinfo("Information", "Aucune donnée disponible pour calculer les statistiques.")
+        return
+
+    # Calcul de la période
+    periode = f"{df['Date'].min().strftime('%d/%m/%Y')} - {df['Date'].max().strftime('%d/%m/%Y')}"
+    periode_label.config(text=f"Période: {periode}")
+
+    # Nombre d'utilisateurs actifs (U+P)
+    nb_utilisateurs = len(pd.unique(df[['Réalisé par', 'Vers']].values.ravel('K')))
+    nb_utilisateurs_label.config(text=f"Nombre d'utilisateurs actifs (U+P): {nb_utilisateurs}")
+
+    # Moyenne des transactions P>P
+    transactions_PP = df[(df['Réalisé par'].str.startswith('P')) & (df['Vers'].str.startswith('P'))]
+    moyenne_transactions_PP = transactions_PP['Montant'].mean() if not transactions_PP.empty else 0
+    moyenne_transactions_PP_label.config(text=f"Moyenne des transactions P>P: {moyenne_transactions_PP:.2f}€")
+
+    # Moyenne de paiement U>P
+    paiements_UP = df[(df['Réalisé par'].str.startswith('U')) & (df['Vers'].str.startswith('P'))]
+    moyenne_paiement_UP = paiements_UP['Montant'].mean() if not paiements_UP.empty else 0
+    moyenne_paiement_UP_label.config(text=f"Moyenne de paiement U>P: {moyenne_paiement_UP:.2f}€")
+
+    # Moyenne des transactions U>U
+    transactions_UU = df[(df['Réalisé par'].str.startswith('U')) & (df['Vers'].str.startswith('U'))]
+    moyenne_transactions_UU = transactions_UU['Montant'].mean() if not transactions_UU.empty else 0
+    moyenne_transactions_UU_label.config(text=f"Moyenne des transactions U>U: {moyenne_transactions_UU:.2f}€")
+
+def appliquer():
+    """Demande le numéro du professionnel et lance l'analyse."""
+    num_saisi = simpledialog.askstring("Entrée", "Identifiant du professionnel à analyser (ex: P0300):", parent=window)
+    if num_saisi:
+        # Utiliser une expression régulière pour extraire l'identifiant professionnel
+        match = re.match(r"(P\d{4})", num_saisi)
+        if match:
+            num_professionnel = match.group(1)  # Extrait l'identifiant professionnel
+            analyser_activite_professionnel(num_professionnel, df_total)
+        else:
+            messagebox.showwarning("Erreur", "Format d'identifiant invalide. Format attendu: Pxxxx.")
+
+# Configuration initiale de la fenêtre principale
+window = tk.Tk()
+window.title("Analyse de données de paiement")
+window.geometry("600x400")  # Ajustez selon vos besoins
+
+# Appliquer un thème ttk
+style = ttk.Style(window)
+style.theme_use('clam')  # 'clam', 'alt', 'default', 'classic', 'vista', 'xpnative'
+
+# Personnaliser un style spécifique
+style.configure('TButton', foreground='black', background='white', font=('Arial', 10), padding=10)
+style.configure('TLabel', foreground='black', font=('Arial', 12))
+style.configure('TFrame', background='lightgray')
+
+# Créer un cadre principal pour améliorer la mise en page
+main_frame = ttk.Frame(window, padding="10 10 10 10", style='TFrame')
+main_frame.pack(fill=tk.BOTH, expand=True)
+
+# Ajouter des widgets dans `main_frame`
+ttk.Label(main_frame, text="Bienvenue dans l'analyse de données de paiement", style='TLabel').pack(pady=10)
+ttk.Button(main_frame, text="Importer des données", command=lambda: importer(window), style='TButton').pack(pady=10)
+ttk.Button(main_frame, text="Analyser activité d'un professionnel", command=appliquer_avec_menu_deroulant, style='TButton').pack(pady=10)
+
+# Ajouter des labels pour les statistiques dans la fenêtre principale
+stats_frame = ttk.Frame(main_frame, padding="10 10 10 10", style='TFrame')
+stats_frame.pack(fill=tk.BOTH, expand=True)
+
+# Labels pour les statistiques
+periode_label = ttk.Label(stats_frame, text="Période: ", style='TLabel')
+periode_label.grid(column=0, row=0, sticky=(tk.W), pady=2)
+
+nb_utilisateurs_label = ttk.Label(stats_frame, text="Nombre d'utilisateurs actifs (U+P): ", style='TLabel')
+nb_utilisateurs_label.grid(column=0, row=1, sticky=(tk.W), pady=2)
+
+moyenne_transactions_PP_label = ttk.Label(stats_frame, text="Moyenne des transactions P>P: ", style='TLabel')
+moyenne_transactions_PP_label.grid(column=0, row=2, sticky=(tk.W), pady=2)
+
+moyenne_paiement_UP_label = ttk.Label(stats_frame, text="Moyenne de paiement U>P: ", style='TLabel')
+moyenne_paiement_UP_label.grid(column=0, row=3, sticky=(tk.W), pady=2)
+
+moyenne_transactions_UU_label = ttk.Label(stats_frame, text="Moyenne des transactions U>U: ", style='TLabel')
+moyenne_transactions_UU_label.grid(column=0, row=4, sticky=(tk.W), pady=2)
+
+# Fonction pour centrer la fenêtre sur l'écran (amélioration de l'ergonomie)
+def centre_fenetre(fenetre):
+    fenetre.update_idletasks()
+    width = fenetre.winfo_width()
+    height = fenetre.winfo_height()
+    x = (fenetre.winfo_screenwidth() // 2) - (width // 2)
+    y = (fenetre.winfo_screenheight() // 2) - (height // 2)
+    fenetre.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+
+centre_fenetre(window)  # Appliquer le centrage à la fenêtre principale
+
+# Lancer la boucle principale de Tkinter
+window.mainloop()
