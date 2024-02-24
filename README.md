@@ -9,3 +9,5 @@
 > Le présent script à été imaginé par quelqu'un qui n'a aucune compétence en matière de code, mais qui à commencé a compilé des élèments grace à chatgpt
 > 
 > Les V1 sont des brouillons
+>
+> Les modules_pro sont les versions à développer rapidement, car elles correspondent à un besion fort. Ainsi elles ont été extraite du reste du script. 
