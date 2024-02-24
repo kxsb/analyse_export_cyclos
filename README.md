@@ -4,8 +4,8 @@
 > 
 > Elles ont besoin d'être travailler individuellement, notamment sur la pertinence des formules d'analyse, et des modes de visualisation
 > 
-> Une fois chaques formules jugées cohérente, fidèle et pertinente, nous pourrions ajouter la fonction de l'export en PDF
+> Une fois chaques formules jugées cohérente, fidèles et pertinente, nous pourrions ajouter la fonction de l'export en PDF
 
-> Le présent script à été imaginé par quelqu'un qui n'a aucune compétence en matière de code, mais qui à commencé à compiler des élèments graces à chat gpt
+> Le présent script à été imaginé par quelqu'un qui n'a aucune compétence en matière de code, mais qui à commencé a compilé des élèments grace à chatgpt
 > 
 > Les V1 sont des brouillons
