@@ -264,8 +264,13 @@ def analyser_activite_professionnel(num_professionnel, df):
     derniere_date = df_user['Date'].max().strftime('%d/%m/%Y')
     
     # Calcul du nombre total de transactions reçues et de la somme totale de ces transactions
-    nb_transactions_recues = df_user[df_user['Vers'].str.contains(num_professionnel)].shape[0]
-    somme_transactions_recues = df_user[df_user['Vers'].str.contains(num_professionnel)]['Montant'].sum()
+    transactions_reçues_sans_conversion = df_user[
+        (df_user['Vers'].str.contains(num_professionnel)) & 
+        (~df_user['Réalisé par'].str.contains('conversion', case=False))
+    ]
+
+    nb_transactions_recues = transactions_reçues_sans_conversion.shape[0]
+    somme_transactions_recues = transactions_reçues_sans_conversion['Montant'].sum()
 
     # Calcul du montant total émis vers des professionnels
     montant_emis_vers_pro = df_user[(df_user['Réalisé par'].str.contains(num_professionnel)) & (df_user['Vers'].str.startswith('P'))]['Montant'].sum()
@@ -273,8 +278,11 @@ def analyser_activite_professionnel(num_professionnel, df):
     # Calcul du montant total émis vers des particuliers
     montant_emis_vers_particuliers = df_user[(df_user['Réalisé par'].str.contains(num_professionnel)) & (df_user['Vers'].str.startswith('U'))]['Montant'].sum()
 
-    # Calcul du montant total reconvertis (lorsque le mot "conversion" figure dans la colonne 'Vers')
+    # Calcul du montant total reconverti (lorsque le mot "conversion" figure dans la colonne 'Vers')
     montant_reconverti = df_user[(df_user['Réalisé par'].str.contains(num_professionnel)) & (df_user['Vers'].str.contains('conversion', case=False))]['Montant'].sum()
+
+    # Calcul du montant total converti (lorsque le mot "conversion" figure dans la colonne 'réalisé par')
+    montant_converti = df_user[(df_user['Vers'].str.contains(num_professionnel)) & (df_user['Réalisé par'].str.contains('conversion', case=False))]['Montant'].sum()
 
     # Calcul du montant total émis, excluant les reconversions
     total_montant_emis_sans_reconversion = montant_emis_vers_pro + montant_emis_vers_particuliers
@@ -289,10 +297,11 @@ def analyser_activite_professionnel(num_professionnel, df):
     canvas_jauge.draw()  # Dessine la jauge
 
     # Ajouter le texte d'information avec les nouvelles informations
-    info_text_recues = f"{nb_particuliers} particuliers (U) et {nb_professionnels} professionnels (P) ont payé {nom_complet_professionnel} sur la période du {premiere_date} au {derniere_date}, ce qui représente {nb_transactions_recues} paiements pour un montant total de {somme_transactions_recues:.2f}€. \n\nDétail: {total_montant_particuliers:.2f}€ de particuliers et {total_montant_professionnels:.2f}€ de professionnels."
+    info_text_recues = f"{nb_particuliers} particuliers (U) et {nb_professionnels} professionnels (P) ont payé {nom_complet_professionnel} sur la période du {premiere_date} au {derniere_date}, ce qui représente {nb_transactions_recues} paiements (hors conversions) pour un montant total de {somme_transactions_recues:.2f}€. \n\nDétail: {total_montant_particuliers:.2f}€ de particuliers et {total_montant_professionnels:.2f}€ de professionnels."
     info_text_emis = f"Montant total émis (hors reconversions): {total_montant_emis_sans_reconversion:.2f}€. \nDétail: {montant_emis_vers_pro:.2f}€ vers professionnels, {montant_emis_vers_particuliers:.2f}€ vers particuliers, {montant_reconverti:.2f}€ reconvertis."
+    info_text_converti = f"Montant total converti en direction de {nom_complet_professionnel}: {montant_converti:.2f}€."
 
-    info_label_text = info_text_recues + " " + info_text_emis  # Combinez les deux textes en un seul
+    info_label_text = f"{info_text_recues} {info_text_emis} {info_text_converti}"  # Combinez les textes en un seul    info_label = tk.Label(graph_window, text=info_label_text, wraplength=500)
     info_label = tk.Label(graph_window, text=info_label_text, wraplength=500)
     info_label.pack()
 
@@ -303,13 +312,30 @@ def analyser_activite_professionnel(num_professionnel, df):
     canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
     # Frise chronologique des montants reçus
+    df_recu_hors_conversion = df_user[
+        (df_user['Vers'].str.contains(num_professionnel)) & 
+        (~df_user['Réalisé par'].str.contains('conversion', case=False))
+    ].sort_values(by='Date')
+
+    # Données de conversion uniquement
     ax1 = fig.add_subplot(311)  # Première ligne, prend toute la largeur
-    df_recu = df_user[df_user['Vers'].str.contains(num_professionnel)].sort_values(by='Date')
-    ax1.plot(df_recu['Date'], df_recu['Montant'], marker='o', linestyle='-')
-    ax1.set_title("paiements reçus")
+    df_conversions = df_user[
+        (df_user['Vers'].str.contains(num_professionnel)) & 
+        (df_user['Réalisé par'].str.contains('conversion', case=False))
+    ].sort_values(by='Date')
+    
+        # Tracé des paiements reçus hors conversions
+    ax1.plot(df_recu_hors_conversion['Date'], df_recu_hors_conversion['Montant'], marker='o', linestyle='-', label='Paiements Reçus')
+
+    # Superposition des conversions avec un marqueur spécifique
+    ax1.scatter(df_conversions['Date'], df_conversions['Montant'], color='black', marker='x', label='Conversions')
+
+    ax1.set_title("Paiements reçus")
     ax1.set_xlabel("Date")
     ax1.set_ylabel("Montant")
     ax1.tick_params(axis='x', rotation=45)
+    ax1.legend()  # Ajoute une légende pour clarifier les marqueurs
+
 
     # Graphique en camembert pour les encaissements reçus de professionnels
     ax2 = fig.add_subplot(323)
