@@ -10,16 +10,11 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import networkx as nx
 import re
-from reportlab.platypus import Image
-
-
-from tkinter import filedialog
-import tempfile
 
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, PageBreak, Paragraph
+from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, PageBreak, Paragraph, image
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 import tempfile
