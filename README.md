@@ -11,7 +11,7 @@ autre compatibilité existante en branche : gemme (comchain)
 fonctionnement : 
 
 1) préparation des données* via /tools
-2) python .\module_pro_v4
+2) run 'python .\module_pro_v4'
 3) btn "importer les données" > "fichier.xlsx.encrypted"
 4) input clé de déchiffrement AES > ok
 5) btn "Voir activité des professionnels"
