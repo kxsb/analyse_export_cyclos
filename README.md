@@ -1,14 +1,19 @@
-> Le présent script à été imaginé par quelqu'un qui n'a aucune compétence en matière de code, mais qui à commencé a compilé des élèments grace à chatgpt
+module_pro_v4 est un module de test qui fonctionne uniquement en local.
 
-> On cherche ici à écrire un script en python qui permet de simplifier la lecture des exports cyclos pour les monnaies locales complémentaire française qui l'utilsent
-> 
-> La présente logique cherche à tendre vers la création d'un rapport d'analyse PDF qui compile les différentes fonctions
-> 
-> Elles ont besoin d'être travailler individuellement, notamment sur la pertinence des formules d'analyse, et des modes de visualisation. 
-> Une fois chaques formules jugées cohérente, fidèles et pertinente, nous pourrions ajouter la fonction de l'export en PDF
-> 
-> Les V1 sont des brouillons
->
-> Les modules_pro sont les versions à développer rapidement, car elles correspondent à un besion fort. Ainsi elles ont été extraite du reste du script. 
->
-> il reste encore un travail sur la fonction d'anonymisation et de préparation des données.
+il s'agit d'un analyseur de transactions cyclos.
+
+compatible : gonette (cyclos). 
+compilation .exe disponnible ici : https://drive.google.com/drive/folders/1q4srwAJ2edOLEo__Vsdd3zLVPKvqVjp3?usp=sharing
+autre compatibilité existante en branche : gemme (comchain)
+
+fonctionnement : 
+
+1) préparation des données* via /tools
+2) python .\module_pro_v4
+3) btn "importer les données" > "fichier.xlsx.encrypted"
+4) input clé de déchiffrement AES > ok
+5) btn "Voir activité des professionnels"
+6) double click sur un professionel affiche sa fiche individuelle de ses flux en MLC.
+
+évolutions : 
+ré-écriture complète en JS, HTML, CSS et Python pour hebergement en ligne, prévu pour fin d'été 2025
